@@ -1,4 +1,4 @@
-## IZY_crawler
+## IZY web crawler
 
 # installing dependancies
 

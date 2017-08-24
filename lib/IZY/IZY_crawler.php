@@ -1,5 +1,7 @@
 <?php
 
+namespace IZY;
+
 class IZY_crawler {
 
     private $config;
@@ -74,7 +76,7 @@ class IZY_crawler {
 
         if ($web_response[0] === 200) {
 
-            $dom = new DOMDocument('1.0');
+            $dom = new \DOMDocument('1.0');
 
             @$dom->loadHTML($web_response[1]);
 

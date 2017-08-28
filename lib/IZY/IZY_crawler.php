@@ -71,75 +71,82 @@ class IZY_crawler {
 
         //
 
-        $this->logger->info( __FUNCTION__ . ' - Fetching URL: ' . $url . ', current depth = ' . $depth);
-        $web_response = $this->_fetch_url_page($url);
+        $this->logger->info( __FUNCTION__ . ' ------------------------> Fetching URL: ' . $url . ', current depth = ' . $depth);
+        $headers_response = $this->_fetch_url_page($url, TRUE);
+        
+        if ($headers_response === TRUE) {
+            $web_response = $this->_fetch_url_page($url, FALSE);
 
-        if ($web_response[0] === 200) {
-
-            $dom = new \DOMDocument('1.0');
-
-            @$dom->loadHTML($web_response[1]);
-
-            $links = $dom->getElementsByTagName('a');
-
-            foreach ($links as $element) {
-
-                $href = $element->getAttribute('href');
-
-                if (0 !== strpos($href, 'http')) {
-
-                    if (0 === strpos($href, '/')) {
-
-                        $parsed_url = parse_url($url);
-
-                        $href = $parsed_url['scheme'] . '://' . $parsed_url['host'] . $href;
-
-                    }
-                    else {
-                        
-                        // if href is not of format: #xxx, append to current url. else ignore the $url:
-                        
-                        if ($this->_validate_urls_path($href) === TRUE) {
-
-                            $href = $url . '/' . $href;
-
+            if ($web_response[0]['http_code'] === 200) {
+                
+                $dom = new \DOMDocument('1.0');
+                
+                @$dom->loadHTML($web_response[1]);
+                
+                $links = $dom->getElementsByTagName('a');
+                
+                foreach ($links as $element) {
+                
+                    $href = $element->getAttribute('href');
+                
+                    if (0 !== strpos($href, 'http')) {
+                
+                        if (0 === strpos($href, '/')) {
+                
+                            $parsed_url = parse_url($url);
+                
+                            $href = $parsed_url['scheme'] . '://' . $parsed_url['host'] . $href;
+                
                         }
                         else {
-
-                            GOTO ENDOFANCHORPROCESSING;
-
+                                
+                            // if href is not of format: #xxx, append to current url. else ignore the $url:
+                                
+                            if ($this->_validate_urls_path($href) === TRUE) {
+                
+                                $href = rtrim($url, '/') . '/' . $href;
+                
+                            }
+                            else {
+                
+                                GOTO ENDOFANCHORPROCESSING;
+                
+                            }
+                
                         }
-
+                
                     }
-
-                }
-                //
-                // check if link is from the same domain, and if not allowed by config, dont process it:
-                // 
-                if ($this->config['allow_discovered_urls_from_different_domain'] === FALSE) {
-
-                    if ($this->_validate_urls_domain($href) === TRUE) {
-
-                        $this->_crawl_page($href, $depth - 1);
-
+                    //
+                    // check if link is from the same domain, and if not allowed by config, dont process it:
+                    // 
+                    if ($this->config['allow_discovered_urls_from_different_domain'] === FALSE) {
+                
+                        if ($this->_validate_urls_domain($href) === TRUE) {
+                
+                            $this->_crawl_page($href, $depth - 1);
+                
+                        }
+                        else {
+                                
+                            $this->logger->info( __FUNCTION__ . ' - discovered URL = ' . $href . ' was discarded, different domain.');
+                
+                        }
+                            
                     }
                     else {
-                        
-                        $this->logger->info( __FUNCTION__ . ' - discovered URL = ' . $href . ' was discarded, different domain.');
-
+                            
+                        $this->_crawl_page($href, $depth - 1);
+                
                     }
-                    
+                
+                    ENDOFANCHORPROCESSING:
                 }
-                else {
-                    
-                    $this->_crawl_page($href, $depth - 1);
-
-                }
-
-                ENDOFANCHORPROCESSING:
             }
-
         }
+        else {
+            $this->logger->info( __FUNCTION__ . ' - discovered URL = ' . $url . ' was discarded, headers test failed.');
+        }
+        
 
         return FALSE;
 
@@ -174,7 +181,7 @@ class IZY_crawler {
         
     }
 
-    private function _fetch_url_page($url) {
+    private function _fetch_url_page($url, $check_headers_only) {
     
         usleep(250000);
         
@@ -191,33 +198,56 @@ class IZY_crawler {
         if ($this->config['use_http_authentication'] === TRUE) {
             curl_setopt($ch, CURLOPT_USERPWD, $this->config['http_username'] . ":" . $this->config['http_password']);
         }
+
+        if ($check_headers_only === TRUE) {
+            // this is used to check if the url is for an html page or a file
+            curl_setopt($ch, CURLOPT_NOBODY, true);
+        }
         
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         
         $web_response = curl_exec($ch);
-        $http_ret_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        // $http_ret_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curl_getinfo = curl_getinfo($ch);
+
+        curl_close($ch);
+        
+        if ($check_headers_only === TRUE) {
+
+            if ($curl_getinfo['http_code'] === 200) {
+                // $this->logger->info(__FUNCTION__ . ' - http response code = ' . $curl_getinfo['http_code']);
+                NULL;
+            }
+            else {
+                $this->logger->error(__FUNCTION__ . ' - http response code = ' . $curl_getinfo['http_code']);
+                return FALSE;
+            }
+            //
+            $this->logger->debug(__FUNCTION__ . ' - http response content type = ' . $curl_getinfo['content_type']);
+            return $this->_validate_http_response_content_type($curl_getinfo['content_type']);
+
+        }
 
         $this->http_requests_counter++;
 
-        if ($http_ret_code === 200) {
-            $this->logger->info(__FUNCTION__ . ' - http response code = ' . $http_ret_code);
+        if ($curl_getinfo['http_code'] === 200) {
+            $this->logger->info(__FUNCTION__ . ' - http response code = ' . $curl_getinfo['http_code']);
         }
         else {
-            $this->logger->error(__FUNCTION__ . ' - http response code = ' . $http_ret_code);
+            $this->logger->error(__FUNCTION__ . ' - http response code = ' . $curl_getinfo['http_code']);
         }
 
-        
         if ($this->config['write_http_response_to_file'] === TRUE) {
-            $this->logger->debug(__FUNCTION__ . ' - curl_getinfo = ' , curl_getinfo($ch));
+            $this->logger->debug(__FUNCTION__ . ' - curl_getinfo = ', $curl_getinfo);
         }
 
         if ($this->config['write_http_bodies_to_file'] === TRUE) {
             $this->logger->debug(__FUNCTION__ . ' - ' . $web_response);  
         }        
         
-        return array($http_ret_code, $web_response);
+        return array($curl_getinfo, $web_response);
     }
     
     private function _select_random_user_agent() {
@@ -284,9 +314,10 @@ class IZY_crawler {
 
     private function _validate_urls_path($path) {
 
-        if (preg_match('/#/', $path) === 1) {
+        if (preg_match('/^#/', $path) === 1 ||
+            preg_match('/^\?/', $path) === 1) {
 
-            $this->logger->info( __FUNCTION__ . ' - Path: ' . $path . ' contains invalid character #.');
+            $this->logger->info( __FUNCTION__ . ' - Path: ' . $path . ' contains invalid characters.');
 
             return FALSE;
 
@@ -296,6 +327,17 @@ class IZY_crawler {
 
     }
 
+    private function _validate_http_response_content_type($content_type) {
+        
+        if ( 0 === strpos($content_type, 'text/html')) {
+            // $this->logger->debug(__FUNCTION__ . ' - returning TRUE, content_type = |' . $content_type);
+            return TRUE;
+        }
+        else {
+            // $this->logger->debug(__FUNCTION__ . ' - returning FALSE, content_type = |' . $content_type);
+            return FALSE;
+        }
 
+    }
 
 }

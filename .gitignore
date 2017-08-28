@@ -1,3 +1,6 @@
 log/*
+!log/.gitignore
 vendor/*
 report/*
+!report/.gitignore
+temp.php
